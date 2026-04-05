@@ -58,7 +58,7 @@ Setiap modul berisi catatan teknis (`.md`), *Proof of Concept* (`.go`), dan hasi
 
 ## 📖 Filosofi Belajar (Kaizen Log)
 
-Setiap sesi 1 jam/hari dialokasikan untuk:
+Setiap sesi /hari dialokasikan untuk:
 
 1. **Deep Reading:** Membedah *Source Code* Standard Library Go (e.g., `sync`, `runtime`, `net`).
 2. **Implementation:** Mengonversi teori ke dalam kode yang fungsional dan terukur.
