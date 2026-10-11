@@ -1,0 +1,151 @@
+# Salin ke .github/workflows/ci.yml
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write   # untuk mengomentari hasil benchmark
+
+env:
+  GOFLAGS: -buildvcs=false
+
+jobs:
+  # ---------- L1: pemeriksaan statis ----------
+  static:
+    name: Pemeriksaan statis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then
+            echo "::error::Kode berikut perlu gofmt:"
+            echo "$out"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Cek kerapian go.mod
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum || \
+            (echo "::error::go.mod/go.sum tidak rapi, jalankan go mod tidy" && exit 1)
+
+  # ---------- L2: lint ----------
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+          # hanya laporkan masalah baru (agar utang lama tidak menenggelamkan PR)
+          only-new-issues: false   # proyek lama disarankan memakai true
+
+  # ---------- L2: test + race ----------
+  test:
+    name: Test (termasuk race)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Unit test
+        run: go test -count=1 ./...
+
+      - name: Deteksi race (wajib untuk kode konkuren)
+        run: go test -race -count=5 ./...
+
+      - name: Acak urutan test (menemukan ketergantungan antar test)
+        run: go test -shuffle=on -count=1 ./...
+
+      - name: Coverage
+        run: |
+          go test -covermode=atomic -coverprofile=cover.out ./...
+          go tool cover -func=cover.out | tail -1
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: cover.out
+          retention-days: 7
+
+  # ---------- Matriks beberapa versi Go ----------
+  matrix:
+    name: Go ${{ matrix.go }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ["oldstable", "stable"]   # Go resmi hanya merawat dua rilis mayor terakhir
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - run: go build ./...
+      - run: go test -count=1 ./...
+
+  # ---------- Regresi performa (tidak memblokir, hanya komentar) ----------
+  bench:
+    name: Perbandingan performa
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Pasang benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Jalankan benchmark (branch saat ini)
+        run: go test -run='^$' -bench=. -benchmem -count=5 ./... > new.txt 2>&1 || true
+
+      - name: Pindah ke main untuk menjalankan baseline
+        run: |
+          git stash || true
+          git checkout origin/${{ github.base_ref }} -- . || true
+          go test -run='^$' -bench=. -benchmem -count=5 ./... > base.txt 2>&1 || true
+
+      - name: Bandingkan lalu komentari
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          benchstat base.txt new.txt > diff.txt 2>&1 || cat new.txt > diff.txt
+          cat diff.txt
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file diff.txt || true
+:

@@ -1,0 +1,105 @@
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  disable-all: true
+  enable:
+    # --- 正确性（最重要） ---
+    - errcheck        # 未检查的 error（A-1）
+    - govet           # 官方静态检查
+    - ineffassign     # 无效赋值
+    - staticcheck     # 综合静态分析
+    - unused          # 未使用的代码
+    - gosimple        # 可简化代码
+    - nilerr          # err != nil 却返回 nil（A-1）
+    - nilnil          # 同时返回 nil, nil
+    - errorlint       # error 比较与包装规范（A-2）
+    - bodyclose       # HTTP body 未关闭（C-8，高频事故）
+    - noctx           # HTTP 请求没有 context（C-6 / B-10）
+    - contextcheck    # context 传递问题（B-10）
+    - sqlclosecheck   # SQL rows 未关闭
+    - rowserrcheck    # rows.Err() 未检查（A-1）
+    - rowserrcheck
+    - makezero        # make(len=n) 后 append 的陷阱（A-3）
+    - exportloopref   # 循环变量地址导出
+    - copyloopvar     # Go 1.22 前需要，1.22+ 可移除
+    - forcetypeassert # 强制检查类型断言（C 类协议解析）
+    - exhaustive      # switch 未覆盖所有枚举值（可选，噪音大时可关）
+
+    # --- 并发 ---
+    # 注意：没有完美的并发 linter，主要靠 -race 和测试
+    - contextcheck
+
+    # --- 性能 ---
+    - prealloc        # 循环里可预分配的 slice
+    - perfsprint      # 不必要的 fmt.Sprintf（如 fmt.Sprintf("%s", s)）
+
+    # --- 风格 ---
+    - misspell
+    - revive
+    - unconvert       # 多余的类型转换
+    - unparam         # 未使用的参数（噪音较大，可关）
+    - whitespace      # 多余空行
+    - godot           # 注释结尾标点（可关）
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true   # 检查 x.(T) 未处理 ok
+    check-blank: true             # 检查 _ = f()
+    exclude-functions:
+      - fmt:.*                    # fmt 的输出错误通常可忽略
+      - (*bytes.Buffer).Write
+      - (*strings.Builder).Write
+
+  govet:
+    enable:
+      - nilness
+      # - shadow   # 变量遮蔽：噪音较大，团队可自行决定是否开启
+
+  revive:
+    rules:
+      - name: context-as-argument     # ctx 必须是第一个参数
+      - name: error-return            # error 必须是最后一个返回值
+      - name: error-strings           # 错误字符串不应大写或带标点
+      - name: error-naming            # 错误变量应命名为 err/Err
+      - name: unreachable-code
+      - name: empty-block
+      - name: increment-decrement
+      - name: var-naming              # 命名规范（如不要用 Url，用 URL）
+      - name: package-comments
+      - name: exported                # 导出符号需要注释
+
+  exhaustive:
+    default-signifies-exhaustive: true
+
+  godot:
+    scope: declarations
+    capital: false
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    # 测试文件放宽
+    - path: _test\.go
+      linters:
+        - errcheck
+        - noctx
+        - forcetypeassert
+        - unparam
+        - godot
+    # 生成的/mock 代码放宽
+    - path: (mock|generated)/.*\.go
+      linters:
+        - errcheck
+        - revive
+        - unparam
+
+output:
+  formats:
+    - format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  sort-results: true

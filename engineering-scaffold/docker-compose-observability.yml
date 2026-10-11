@@ -1,0 +1,66 @@
+# Stack observability: Prometheus + Grafana + Tempo (traces) + Loki (logs)
+# Cara pakai: docker compose -f docker-compose.observability.yml up -d
+# Akses: Grafana http://localhost:3000 (admin/admin)
+#        Prometheus http://localhost:9090
+#        Tempo http://localhost:3200
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: obs-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: obs-tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+    ports:
+      - "3200:3200"   # Tempo HTTP
+      - "4317:4317"   # OTLP gRPC  <- aplikasi mengirim trace ke sini
+      - "4318:4318"   # OTLP HTTP
+
+  loki:
+    image: grafana/loki:latest
+    container_name: obs-loki
+    command: ["-config.file=/etc/loki.yaml"]
+    volumes:
+      - ./loki.yaml:/etc/loki.yaml:ro
+    ports:
+      - "3100:3100"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: obs-grafana
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_FEATURE_TOGGLES_ENABLE: "traceToMetrics,correlations"
+    volumes:
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/ds.yml:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
+
+  # Opsional: Node Exporter Prometheus untuk metrik mesin
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: obs-node-exporter
+    ports:
+      - "9100:9100"
+
+volumes:
+  grafana-data:
+
